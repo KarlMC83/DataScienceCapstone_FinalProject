@@ -1,0 +1,236 @@
+---
+title: "Final Project - Data Science Capstone"
+author: "Karl Melgarejo Castillo"
+date: "January 6, 2022"
+output: 
+  html_document:
+    keep_md: true
+---
+
+## Executive summary
+
+In this document I briefly describe the methodology that I used to build a basic *'next word' prediction algorithm* for any given text. 
+
+This report is part of the Capstone Project of the Johns Hopkins Data Science Specialization which also requires to build a web application. The app can be accessed here <https://karlmc83.shinyapps.io/CapstoneProject/>.
+
+The codes in R that I created to build the algorithm can be accessed from my GitHub repository <https://github.com/KarlMC83/DataScienceCapstone_FinalProject>. 
+
+## 1. Pre-processing data
+
+This was the most exhausting part of the analysis due to the limited memory capacity of my laptop (8 GB of RAM). In a previous analysis, I selected randomly a sample of lines from the three databases (which are very large) by using a binomial process to analyse the main features in an efficient manner. The report can be accessed here <https://github.com/KarlMC83/DataScienceCapstone_MilestoneReport> (there was a mistake in the size of the second database that has been corrected for this final report). 
+
+For this final project, I needed to evaluate a much larger sample in order to improve the accuracy of the prediction. For this task, I proceeded as follows: 1. I joined the three files (from Twitter, News, and Blogs) into one file; 2. I split this new file into 10 parts; 3. I created a *corpus* file with each part and *tokenized* each *corpus* in 2, 3, and 4-gram files, which were saved in my laptop; 4. I created frequency tables with groups of 2 or 3 *tokenized* files (depending on the size) until using all the 10 files to build one frequency table for each *n-gram* model (3 tables in total); 5. Finally, I dropped the words that appeared only once to reduce the dimension of the tables. These tables are shown below: 
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+setwd("C:/Users/KARL/Dropbox/Cursos online/Johns Hopkins - Coursera/10 Data Science Capstone/Coursera-SwiftKey/final")
+library(stringr)
+
+##### Consolidated 4-gram dictionary
+freq4_110 <- read.table(file = "./en_US/Parts/Freq/freq4_110.txt")
+ord4 <- order(freq4_110$freq, decreasing = TRUE)
+freq4_110$ng <- str_extract(freq4_110$feature,"\\w+ \\w+ \\w+")
+freq4_110$ng <- paste("-_-", freq4_110$ng)
+
+##### Consolidated 3-gram dictionary
+freq3_110 <- read.table(file = "./en_US/Parts/Freq/freq3_110.txt")
+ord3 <- order(freq3_110$freq, decreasing = TRUE)
+freq3_110$ng <- str_extract(freq3_110$feature,"\\w+ \\w+")
+freq3_110$ng <- paste("-_-", freq3_110$ng)
+
+##### Consolidated 2-gram dictionary
+freq2_110 <- read.table(file = "./en_US/Parts/Freq/freq2_110.txt")
+ord2 <- order(freq2_110$freq, decreasing = TRUE)
+freq2_110$ng <- str_extract(freq2_110$feature,"\\w+")
+freq2_110$ng <- paste("-_-", freq2_110$ng)
+
+```
+
+**Table of frequencies: 4-gram analysis** (6 most frequent)
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+head(freq4_110[ord4,1:2])
+paste("Number of rows:", dim(freq4_110)[1])
+```
+
+**Table of frequencies: 3-gram analysis** (6 most frequent)
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+head(freq3_110[ord3,1:2])
+paste("Number of rows:", dim(freq3_110)[1])
+```
+
+**Table of frequencies: 2-gram analysis** (6 most frequent)
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+head(freq2_110[ord2,1:2])
+paste("Number of rows:", dim(freq2_110)[1])
+```
+
+## 2. A basic *n-gram* prediction algorithm
+
+In this section I explain the main assumptions and characteristics of the prediction algorithm. 
+
+### 2.1 The intuition
+
+The intuition of an *n-gram* model is that the *next word* of a continuous sequence of *n-1* words from a given sample of text can be predicted by assigning a probability to each possible next word. Thus, the most likely word will be the one with the highest probability. As Jurafsky and Martin (2021) suggest, we can use the relative frequency counts to estimate this probability. This consists of counting the number of times we see the *n-1 gram* sentence in a large *corpus*, and count the number of times this is followed by an specific word. 
+
+For instance, if we have the following sentence *"saved by the"* and we want to know the probability that the next word is *"bell"*, we can calculate the following ratio:
+
+\begin{align*}
+
+\frac{Count(\textrm{saved by the bell})}{Count(\textrm{saved by the})}
+
+\end{align*}
+
+This ratio is just an estimation of the conditional probability $P(\textrm{bell}|\textrm{saved by the}) = \frac{P(\textrm{saved by the } \cap \textrm{ bell})}{P(\textrm{saved by the})}$ and answers the following question: *out of the times we saw "saved by the", how many times was it followed by the word "bell"*. 
+
+This is an example of an *n-gram* prediction model, in which the estimation of the conditional probability is relatively simple to compute. Nevertheless, in the presence of a large sentence we will need to estimate the probability of a word given the history of the entire sentence, which could be difficult to compute. The Markov assumption helps us in this matter.    
+
+
+### 2.2 Markov assumption
+
+Under the Markov assumption, the probability of a word depends only on the previous *n-1* words. Therefore, in an *4-gram* model, the probability of the last word depends on the 3 previous words; and in a *2-gram*, just on the previous word.
+
+Following Jurafsky and Martin (2021), the maximum likelihood estimation of an *n-gram* model will be:
+
+\begin{align*}
+
+P(w_i|w_{i-n+1:i-1}) = \frac{Count(w_{i-n+1:i-1} w_i)}{Count(w_{i-n+1:i-1})}
+
+\end{align*}
+
+where *w* represents a word in the position *i*, and *n* is the number of words of the *n-gram* model. As an example, we are going to predict the next word of the sentence *"it would mean the"* by using a *4-gram* model:
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+library(stringr)
+w <- "-_- would mean the"
+r <- freq4_110[freq4_110$ng == w,]
+r$prob <- round(r$freq / sum(r$freq)*100, 2)
+r$pred <- str_extract(r$feature,"\\w+$")
+ror <- order(r$freq, decreasing = TRUE)
+names(r) <- c("4-gram", "Freq.", "3-prev.words", "Prob.", "Prediction") 
+head(r[ror,])
+```
+
+In this example, the word *"world"* has the higher probability and therefore is the prediction of the algorithm. In general, the algorithm will start always with a *4-gram* model and if there is no answer (e.g. a zero probability) it will use the next lower *n-gram* model. This method is called **backoff** and basically means using less context to predict.  
+
+## 3. Room for improvement
+
+The most important limitation of the *n-gram* prediction algorithm is the strong dependency on the training database. Thus, if we use a sentence that is not present in the training database the prediction will lose accuracy.
+
+There are different methods to deal with *new context* in a text prediction model (e.g. Neural Networks, Machine Learning, etc.) but I will use a very simple approach that consists of just calculating the correlations of the words predicted by the *n-model* with all the words in the text given, and without using *stop-words*, which don't add important additional information. Given that the calculation of correlations for many words will require high memory capacity, I will use just a random sample of lines of size 5% of the three databases.
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+library(tm)
+library(tokenizers)
+library(ngram)
+library(RWeka)
+library(stringi)
+
+# 1. Reading data sets from my local file and taking samples
+setwd("C:/Users/KARL/Dropbox/Cursos online/Johns Hopkins - Coursera/10 Data Science Capstone/Coursera-SwiftKey/final")
+
+set.seed(26122021)
+
+# 1.1. US data sets
+        #1.1.1 Twitter
+con <- file("./en_US/en_US.twitter.txt", "r")
+dt1 <- readLines(con) 
+        # Randomly sample lines with rbinom 
+dt1 <- dt1[as.logical(rbinom(length(dt1), 1, .05))]
+        # Close connection
+close(con)
+
+        #1.1.2 News
+        # Using "Connections" in R
+con <- file("./en_US/en_US.news.txt", "r")
+dt2 <- readLines(con) 
+        # Randomly sample lines with rbinom 
+dt2 <- dt2[as.logical(rbinom(length(dt2), 1, .05))]
+        # Close connection
+close(con)
+
+        #1.1.3 Blogs
+        # Using "Connections" in R
+con <- file("./en_US/en_US.blogs.txt", "r")
+dt3 <- readLines(con) 
+        # Randomly sample lines with rbinom 
+dt3 <- dt3[as.logical(rbinom(length(dt3), 1, .05))]
+        # Close connection
+close(con)
+
+
+# 2. Using the "tm" package to create a Corpus file
+dt <- rbind(dt1, dt2, dt3)
+dt_c <- Corpus(VectorSource(dt))
+rm(dt1, dt2, dt3)
+
+# 3. Pre-processing the data
+dt_c <- tm_map(dt_c, stripWhitespace)
+dt_c <- tm_map(dt_c, content_transformer(tolower))
+dt_c <- tm_map(dt_c, removeWords, stopwords("en"))
+dt_c <- tm_map(dt_c, removeNumbers)
+dt_c <- tm_map(dt_c, removePunctuation)
+
+# 4. Matrix from a corpus and removing sparse words
+dtm <-DocumentTermMatrix(dt_c)
+dtm <- removeSparseTerms(dtm,0.99995)
+
+# 5. Calculating correlations
+cor_1 <- findAssocs(dtm, "marital", 0)
+names(cor_1) <- "corr"
+r1 <- matrix(nrow=10, ncol = 1)
+r1[1] <- as.matrix(cor_1$corr[names(cor_1$corr)=="guy"])[1] 
+r1[2] <- as.matrix(cor_1$corr[names(cor_1$corr)=="table"])[1] 
+r1[3] <- as.matrix(cor_1$corr[names(cor_1$corr)=="wife"])[1]
+r1[4] <- as.matrix(cor_1$corr[names(cor_1$corr)=="bathroom"])[1]
+r1[5] <- as.matrix(cor_1$corr[names(cor_1$corr)=="asked"])[1] 
+r1[6] <- as.matrix(cor_1$corr[names(cor_1$corr)=="about"])[1] 
+r1[7] <- as.matrix(cor_1$corr[names(cor_1$corr)=="dessert"])[1]
+r1[8] <- as.matrix(cor_1$corr[names(cor_1$corr)=="started"])[1]
+r1[9] <- as.matrix(cor_1$corr[names(cor_1$corr)=="telling"])[1]
+r1[10] <- as.matrix(cor_1$corr[names(cor_1$corr)=="his"])[1] 
+
+cor_1 <- findAssocs(dtm, "financial", 0)
+names(cor_1) <- "corr"
+r2 <- matrix(nrow=10, ncol = 1)
+r2[1] <- as.matrix(cor_1$corr[names(cor_1$corr)=="guy"])[1] 
+r2[2] <- as.matrix(cor_1$corr[names(cor_1$corr)=="table"])[1] 
+r2[3] <- as.matrix(cor_1$corr[names(cor_1$corr)=="wife"])[1]
+r2[4] <- as.matrix(cor_1$corr[names(cor_1$corr)=="bathroom"])[1]
+r2[5] <- as.matrix(cor_1$corr[names(cor_1$corr)=="asked"])[1] 
+r2[6] <- as.matrix(cor_1$corr[names(cor_1$corr)=="about"])[1] 
+r2[7] <- as.matrix(cor_1$corr[names(cor_1$corr)=="dessert"])[1]
+r2[8] <- as.matrix(cor_1$corr[names(cor_1$corr)=="started"])[1]
+r2[9] <- as.matrix(cor_1$corr[names(cor_1$corr)=="telling"])[1]
+r2[10] <- as.matrix(cor_1$corr[names(cor_1$corr)=="his"])[1] 
+
+```
+
+I will show an example of how this simple procedure works with the following sentence: *"Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his"*.
+
+By using the *n-gram* model we have two possible solutions: *"marital"* and *"financial"* with probabilities 0.0022 and 0.0237 respectively. The word *financial* is the prediction of the *n-gram* model, due to its higher probability; but it seems that it doesn't fit well in the sentence given. In the following table I show the correlation of these two words with the previous words in the entire sentence (excluding stop words) which is calculated by using all the lines from the selected random sample. 
+
+As we can see, the word *marital* has a positive correlation with the word *wife*, which means that both words were used at the same time in some lines from this sample; on the other hand, no correlation was calculated with the rest of words, which means that these words were not used in lines close to the word *marital*. While for the word *financial*, the words *guy* and *asked* were used in different lines so there was no correlation among them and with the rest of the words no correlation was calculated because those words were not used in lines close to the word *financial*.  
+
+
+| Previous words / Predicted words     |        Marital       |       Financial      | 
+| :---                                 |        :----:        |        :----:        | 
+| Guy                                  |       `r r1[1]`      |       `r r2[1]`      | 
+| Table                                |       `r r1[2]`      |       `r r2[2]`      |
+| Wife                                 |       `r r1[3]`      |       `r r2[3]`      |
+| Bathroom                             |       `r r1[4]`      |       `r r2[4]`      |
+| Asked                                |       `r r1[5]`      |       `r r2[5]`      |
+| About                                |       `r r1[6]`      |       `r r2[6]`      |
+| Dessert                              |       `r r1[7]`      |       `r r2[7]`      |
+| Started                              |       `r r1[8]`      |       `r r2[8]`      |
+| Telling                              |       `r r1[9]`      |       `r r2[9]`      |
+| His                                  |       `r r1[10]`     |       `r r2[10]`     |
+| **Sum of correlations**                  |`r sum(r1, na.rm = TRUE)`| `r sum(r2, na.rm = TRUE)`|
+
+According to these results, the word *marital* seems to be more related to the context of the sentence because it has a higher sum of correlations with words in the given sentence, even though the word *financial* has a higher probability in the *n-gram* prediction model. This approach can be improved by using more sources of text databases to increase the number of correlations and their statistical significance.  
+
+## Bibliography
+
+Hvitfeldt, E. and Silge, J. (2021). *Supervised Machine Learning for Text Analysis in R*. <https://smltar.com/> 
+
+Jurafsky, D. and Martin, J. (2021). *Speech and Language Processing: An Introduction to Natural Language Processing, Computational Linguistics, and Speech Recognition*. <https://web.stanford.edu/~jurafsky/slp3/>
+
+Watanabe, K. and Müller, S. (2021). *QUANTEDA Tutorials*. <https://tutorials.quanteda.io/>
